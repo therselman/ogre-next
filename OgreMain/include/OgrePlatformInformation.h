@@ -35,34 +35,6 @@ namespace Ogre {
 // TODO: Puts following macros into OgrePlatform.h?
 //
 
-/* Initial CPU stuff to set.
-*/
-#define OGRE_CPU_UNKNOWN    0
-#define OGRE_CPU_X86        1
-#define OGRE_CPU_PPC        2
-#define OGRE_CPU_ARM        3
-#define OGRE_CPU_MIPS       4
-
-/* Find CPU type
-*/
-#if (defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))) || \
-    (defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__)))
-#   define OGRE_CPU OGRE_CPU_X86
-
-#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE && defined(__BIG_ENDIAN__)
-#   define OGRE_CPU OGRE_CPU_PPC
-#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE
-#   define OGRE_CPU OGRE_CPU_X86
-#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS && (defined(__i386__) || defined(__x86_64__))
-#   define OGRE_CPU OGRE_CPU_X86
-#elif defined(__arm__) || defined(_M_ARM) || defined(__arm64__) || defined(__aarch64__)
-#   define OGRE_CPU OGRE_CPU_ARM
-#elif defined(__mips64) || defined(__mips64_)
-#   define OGRE_CPU OGRE_CPU_MIPS
-#else
-#   define OGRE_CPU OGRE_CPU_UNKNOWN
-#endif
-
 /* Find how to declare aligned variable.
 */
 #if OGRE_COMPILER == OGRE_COMPILER_MSVC
@@ -79,7 +51,6 @@ namespace Ogre {
 */
 #if OGRE_CPU == OGRE_CPU_X86
 #   define OGRE_SIMD_ALIGNMENT  16
-
 #else
 #   define OGRE_SIMD_ALIGNMENT  16
 #endif
@@ -91,17 +62,14 @@ namespace Ogre {
 /* Define whether or not Ogre compiled with SSE support.
 */
 #if OGRE_USE_SIMD == 1
-    #if   OGRE_DOUBLE_PRECISION == 0 && OGRE_CPU == OGRE_CPU_X86 && OGRE_COMPILER == OGRE_COMPILER_MSVC && \
-        OGRE_PLATFORM != OGRE_PLATFORM_NACL
-    #   define __OGRE_HAVE_SSE  1
-    #elif OGRE_DOUBLE_PRECISION == 0 && OGRE_CPU == OGRE_CPU_X86 && (OGRE_COMPILER == OGRE_COMPILER_GNUC || OGRE_COMPILER == OGRE_COMPILER_CLANG) && \
-          OGRE_PLATFORM != OGRE_PLATFORM_APPLE_IOS && OGRE_PLATFORM != OGRE_PLATFORM_NACL
+    #if   OGRE_DOUBLE_PRECISION == 0 && OGRE_CPU == OGRE_CPU_X86 && OGRE_PLATFORM != OGRE_PLATFORM_NACL
     #   define __OGRE_HAVE_SSE  1
     #endif
 
     /* Define whether or not Ogre compiled with NEON support.
      */
-    #if OGRE_DOUBLE_PRECISION == 0 && OGRE_CPU == OGRE_CPU_ARM && (OGRE_COMPILER == OGRE_COMPILER_GNUC || OGRE_COMPILER == OGRE_COMPILER_CLANG) && defined(__ARM_NEON__)
+    #if OGRE_DOUBLE_PRECISION == 0 && OGRE_CPU == OGRE_CPU_ARM && \
+        ( defined(__ARM_NEON__) || defined(_WIN32_WINNT_WIN8) && _WIN32_WINNT >= _WIN32_WINNT_WIN8 )
     #   define __OGRE_HAVE_NEON  1
     #endif
 #endif

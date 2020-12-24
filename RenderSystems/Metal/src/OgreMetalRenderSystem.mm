@@ -79,6 +79,8 @@ namespace Ogre
         mSwIndirectBufferPtr( 0 ),
         mPso( 0 ),
         mComputePso( 0 ),
+        mStencilEnabled( false ),
+        mStencilRefValue( 0u ),
         mCurrentIndexBuffer( 0 ),
         mCurrentVertexBuffer( 0 ),
         mCurrentPrimType( MTLPrimitiveTypePoint ),
@@ -631,7 +633,7 @@ namespace Ogre
         }
     }
     //-------------------------------------------------------------------------
-    void MetalRenderSystem::_setTexture( size_t unit, TextureGpu *texPtr )
+    void MetalRenderSystem::_setTexture( size_t unit, TextureGpu *texPtr, bool bDepthReadOnly )
     {
         if( texPtr )
         {
@@ -1159,7 +1161,7 @@ namespace Ogre
             passDesc->performStoreActions( RenderPassDescriptor::All, isInterruptingRender );
 
             mEntriesToFlush = 0;
-            mVpChanged = false;
+            mVpChanged = true;
 
             mInterruptedRenderCommandEncoder = isInterruptingRender;
 
@@ -1602,8 +1604,10 @@ namespace Ogre
             vertexDescriptor.layouts[15].stride = 4;
             vertexDescriptor.layouts[15].stepFunction = MTLVertexStepFunctionPerInstance;
 #endif
-            [psd setVertexDescriptor:vertexDescriptor];
+            psd.vertexDescriptor = vertexDescriptor;
         }
+
+        psd.alphaToCoverageEnabled = newPso->blendblock->mAlphaToCoverageEnabled;
 
         uint8 mrtCount = 0;
         for( int i=0; i<OGRE_MAX_MULTIPLE_RENDER_TARGETS; ++i )
@@ -2068,22 +2072,24 @@ namespace Ogre
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_setComputePso( const HlmsComputePso *pso )
     {
-        __unsafe_unretained id<MTLComputePipelineState> metalPso =
-                (__bridge id<MTLComputePipelineState>)pso->rsData;
-
         __unsafe_unretained id<MTLComputeCommandEncoder> computeEncoder =
                 mActiveDevice->getComputeEncoder();
 
         if( mComputePso != pso )
         {
-            [computeEncoder setComputePipelineState:metalPso];
+            if( pso )
+            {
+                __unsafe_unretained id<MTLComputePipelineState> metalPso =
+                    (__bridge id<MTLComputePipelineState>)pso->rsData;
+                [computeEncoder setComputePipelineState:metalPso];
+            }
             mComputePso = pso;
         }
     }
     //-------------------------------------------------------------------------
     VertexElementType MetalRenderSystem::getColourVertexElementType(void) const
     {
-        return VET_COLOUR_ARGB;
+        return VET_COLOUR_ABGR; // MTLVertexFormatUChar4Normalized
     }
     //-------------------------------------------------------------------------
     void MetalRenderSystem::_dispatch( const HlmsComputePso &pso )

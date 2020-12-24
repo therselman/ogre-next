@@ -77,7 +77,8 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     const String& Renderable::getDatablockOrMaterialName() const
     {
-        if( HlmsDatablock *datablock = getDatablock() )
+        HlmsDatablock* datablock = getDatablock();
+        if( datablock && datablock->getCreator()->getType() != HLMS_LOW_LEVEL )
             if( const String *nameStr = datablock->getNameStr() )  // could be null if leaked
                 return *nameStr;
 
@@ -262,7 +263,7 @@ namespace Ogre
         mPoseData->weights[index] += w;
     }
     //-----------------------------------------------------------------------------------
-    TexBufferPacked* Renderable::getPoseTexBuffer(void) const
+    TexBufferPacked *Renderable::getPoseTexBuffer( void ) const
     {
         return mPoseData ? mPoseData->buffer : 0;
     }

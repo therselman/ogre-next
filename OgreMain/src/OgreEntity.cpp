@@ -217,27 +217,6 @@ namespace v1 {
 
         reevaluateVertexProcessing();
 
-        HlmsManager *hlmsManager = Root::getSingleton().getHlmsManager();
-        size_t numSubMeshes = mMesh->getNumSubMeshes();
-        for( size_t i=0; i<numSubMeshes; ++i )
-        {
-            SubMesh *subMesh = mMesh->getSubMesh(i);
-            if( subMesh->isMatInitialised() )
-            {
-                //Give preference to HLMS materials of the same name
-                HlmsDatablock *datablock = hlmsManager->getDatablockNoDefault(
-                                                    subMesh->getMaterialName() );
-                if( datablock )
-                {
-                    mSubEntityList[i].setDatablock( datablock );
-                }
-                else
-                {
-                    mSubEntityList[i].setMaterialName( subMesh->getMaterialName(), mMesh->getGroup() );
-                }
-            }
-        }
-
         Aabb aabb;
         if( mMesh->getBounds().isInfinite() )
             aabb = Aabb::BOX_INFINITE;
@@ -483,7 +462,7 @@ namespace v1 {
     //-----------------------------------------------------------------------
     void Entity::_updateRenderQueue(RenderQueue* queue, Camera *camera, const Camera *lodCamera)
     {
-        /*// Do nothing if not initialised yet
+        // Do nothing if not initialised yet
         if (!mInitialised)
             return;
 
@@ -494,7 +473,7 @@ namespace v1 {
             _initialise(true);
         }
 
-        {
+        /*{
             FastArray<unsigned char>::const_iterator itCurrentMatLod = mCurrentMaterialLod.begin();
             SubEntityList::iterator itor = mSubEntityList.begin();
             SubEntityList::iterator end  = mSubEntityList.end();
@@ -1273,8 +1252,10 @@ namespace v1 {
         {
             subMesh = mesh->getSubMesh(i);
             sublist->push_back( SubEntity( this, subMesh ) );
-            if (materialList)
-                sublist->back().setDatablockOrMaterialName((*materialList)[i], mesh->getGroup());
+
+            //Try first Hlms materials, then the low level ones.
+            sublist->back().setDatablockOrMaterialName(
+                materialList ? ( *materialList )[i] : subMesh->getMaterialName(), mesh->getGroup() );
         }
     }
     //-----------------------------------------------------------------------

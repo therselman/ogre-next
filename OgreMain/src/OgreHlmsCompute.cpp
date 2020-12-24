@@ -29,10 +29,13 @@ THE SOFTWARE.
 #include "OgreStableHeaders.h"
 
 #include "OgreHlmsCompute.h"
+
 #include "OgreHlmsComputeJob.h"
+#include "OgreHlmsManager.h"
 
 #include "OgreHighLevelGpuProgramManager.h"
 #include "OgreHighLevelGpuProgram.h"
+#include "OgreRootLayout.h"
 
 #include "OgreSceneManager.h"
 #include "Compositor/OgreCompositorShadowNode.h"
@@ -90,6 +93,11 @@ namespace Ogre
     HlmsCompute::~HlmsCompute()
     {
         destroyAllComputeJobs();
+        if( mHlmsManager )
+        {
+            mHlmsManager->unregisterComputeHlms();
+            mHlmsManager = 0;
+        }
     }
     //-----------------------------------------------------------------------------------
     void HlmsCompute::_changeRenderSystem( RenderSystem *newRs )
@@ -98,17 +106,9 @@ namespace Ogre
 
         if( mRenderSystem )
         {
-            //Prefer glsl over glsles
-            const String shaderProfiles[3] = { "hlsl", "glsles", "glsl" };
             const RenderSystemCapabilities *capabilities = mRenderSystem->getCapabilities();
 
-            for( size_t i=0; i<3; ++i )
-            {
-                if( capabilities->isShaderProfileSupported( shaderProfiles[i] ) )
-                    mShaderProfile = shaderProfiles[i];
-            }
-
-            if( mShaderProfile == "hlsl" )
+            if( mShaderProfile == "hlsl" || mShaderProfile == "hlslvk" )
             {
                 for( size_t j=0; j<3 && !mComputeShaderTarget; ++j )
                 {
@@ -194,7 +194,7 @@ namespace Ogre
         ResourceGroupManager &resourceGroupMgr = ResourceGroupManager::getSingleton();
         DataStreamPtr inFile = resourceGroupMgr.openResource( sourceFilename );
 
-        if( mShaderProfile == "glsl" ) //TODO: String comparision
+        if( mShaderProfile == "glsl" || mShaderProfile == "glslvk" ) //TODO: String comparision
         {
             setProperty( HlmsBaseProp::GL3Plus,
                          mRenderSystem->getNativeShadingLanguageVersion() );
@@ -205,6 +205,8 @@ namespace Ogre
         setProperty( HlmsBaseProp::Syntax,  mShaderSyntax.mHash );
         setProperty( HlmsBaseProp::Hlsl,    HlmsBaseProp::Hlsl.mHash );
         setProperty( HlmsBaseProp::Glsl,    HlmsBaseProp::Glsl.mHash );
+        setProperty( HlmsBaseProp::Glslvk,  HlmsBaseProp::Glslvk.mHash );
+        setProperty( HlmsBaseProp::Hlslvk,  HlmsBaseProp::Hlslvk.mHash );
         setProperty( HlmsBaseProp::Glsles,  HlmsBaseProp::Glsles.mHash );
         setProperty( HlmsBaseProp::Metal,   HlmsBaseProp::Metal.mHash );
 
@@ -293,6 +295,13 @@ namespace Ogre
                             mShaderProfile, GPT_COMPUTE_PROGRAM );
                 gp->setSource( outString, debugFilenameOutput );
 
+                {
+                    RootLayout rootLayout;
+                    rootLayout.mCompute = true;
+                    job->setupRootLayout( rootLayout );
+                    gp->setRootLayout( gp->getType(), rootLayout );
+                }
+
                 if( mComputeShaderTarget )
                 {
                     //D3D-specific
@@ -358,6 +367,24 @@ namespace Ogre
 
         if( itor != mComputeJobs.end() )
         {
+            HlmsComputeJob *job = itor->second.computeJob;
+            ComputePsoCacheVec::iterator itCache = mComputeShaderCache.begin();
+            ComputePsoCacheVec::iterator enCache = mComputeShaderCache.end();
+
+            while( itCache != enCache )
+            {
+                if( itCache->job == job )
+                {
+                    mRenderSystem->_hlmsComputePipelineStateObjectDestroyed( &itCache->pso );
+                    // We can't remove the entry, but we can at least cleanup
+                    // some memory and leave an empty, unused entry
+                    *itCache = ComputePsoCache();
+                    mFreeShaderCacheEntries.push_back(
+                        static_cast<size_t>( itCache - mComputeShaderCache.begin() ) );
+                }
+                ++itCache;
+            }
+
             OGRE_DELETE itor->second.computeJob;
             mComputeJobs.erase( itor );
         }
@@ -365,6 +392,8 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     void HlmsCompute::destroyAllComputeJobs()
     {
+        clearShaderCache();
+
         HlmsComputeJobMap::const_iterator itor = mComputeJobs.begin();
         HlmsComputeJobMap::const_iterator end  = mComputeJobs.end();
 
@@ -379,19 +408,26 @@ namespace Ogre
     //-----------------------------------------------------------------------------------
     void HlmsCompute::clearShaderCache(void)
     {
+        if( mRenderSystem )
+            mRenderSystem->_setComputePso( 0 );
+
         ComputePsoCacheVec::iterator itor = mComputeShaderCache.begin();
         ComputePsoCacheVec::iterator end  = mComputeShaderCache.end();
 
         while( itor != end )
         {
-            mRenderSystem->_hlmsComputePipelineStateObjectDestroyed( &itor->pso );
-            itor->job->mPsoCacheHash = -1;
+            if( itor->job )
+            {
+                mRenderSystem->_hlmsComputePipelineStateObjectDestroyed( &itor->pso );
+                itor->job->mPsoCacheHash = -1;
+            }
             ++itor;
         }
 
         Hlms::clearShaderCache();
         mCompiledShaderCache.clear();
         mComputeShaderCache.clear();
+        mFreeShaderCacheEntries.clear();
     }
     //-----------------------------------------------------------------------------------
     void HlmsCompute::dispatch( HlmsComputeJob *job, SceneManager *sceneManager, Camera *camera )
@@ -419,8 +455,21 @@ namespace Ogre
                 psoCache.setProperties.swap( job->mSetProperties );
                 this->mSetProperties = job->mSetProperties;
 
+                // Uset the HlmsComputePso, as the ptr may be cached by the
+                // RenderSystem and this could be invalidated
+                mRenderSystem->_setComputePso( 0 );
+
+                size_t newCacheEntryIdx = mComputeShaderCache.size();
+                if( mFreeShaderCacheEntries.empty() )
+                    mComputeShaderCache.push_back( ComputePsoCache() );
+                else
+                {
+                    newCacheEntryIdx = mFreeShaderCacheEntries.back();
+                    mFreeShaderCacheEntries.pop_back();
+                }
+
                 //Compile and add the PSO to the cache.
-                psoCache.pso = compileShader( job, mComputeShaderCache.size() );
+                psoCache.pso = compileShader( job, (uint32)newCacheEntryIdx );
 
                 ShaderParams *shaderParams = job->_getShaderParams( "default" );
                 if( shaderParams )
@@ -428,21 +477,21 @@ namespace Ogre
                 if( shaderParams )
                     psoCache.paramsProfileUpdateCounter = shaderParams->getUpdateCounter();
 
-                mComputeShaderCache.push_back( psoCache );
+                mComputeShaderCache[newCacheEntryIdx] = psoCache;
 
                 //The PSO in the cache doesn't have the properties. Make a hard copy.
                 //We can use this->mSetProperties as it may have been modified during
                 //compilerShader by the template.
-                mComputeShaderCache.back().setProperties = job->mSetProperties;
+                mComputeShaderCache[newCacheEntryIdx].setProperties = job->mSetProperties;
 
-                job->mPsoCacheHash = mComputeShaderCache.size() - 1u;
+                job->mPsoCacheHash = newCacheEntryIdx;
             }
             else
             {
                 //It was already in the cache. Return back the borrowed
                 //properties and set the proper index to the cache.
                 psoCache.setProperties.swap( job->mSetProperties );
-                job->mPsoCacheHash = itor - mComputeShaderCache.begin();
+                job->mPsoCacheHash = static_cast<size_t>( itor - mComputeShaderCache.begin() );
             }
         }
 
@@ -477,9 +526,9 @@ namespace Ogre
         }
 
         if( job->mTexturesDescSet )
-            mRenderSystem->_setTexturesCS( 0, job->mTexturesDescSet );
+            mRenderSystem->_setTexturesCS( job->getGlTexSlotStart(), job->mTexturesDescSet );
         if( job->mSamplersDescSet )
-            mRenderSystem->_setSamplersCS( 0, job->mSamplersDescSet );
+            mRenderSystem->_setSamplersCS( job->getGlTexSlotStart(), job->mSamplersDescSet );
         if( job->mUavsDescSet )
             mRenderSystem->_setUavCS( 0u, job->mUavsDescSet );
 
@@ -503,6 +552,8 @@ namespace Ogre
     {
         return 0;
     }
+    //----------------------------------------------------------------------------------
+    void HlmsCompute::setupRootLayout( RootLayout &rootLayout ) {}
     //----------------------------------------------------------------------------------
     void HlmsCompute::reloadFrom( Archive *newDataFolder, ArchiveVec *libraryFolders )
     {

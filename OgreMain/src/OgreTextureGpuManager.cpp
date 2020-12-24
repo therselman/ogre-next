@@ -87,6 +87,7 @@ namespace Ogre
         mTryLockMutexFailureCount( 0u ),
         mTryLockMutexFailureLimit( 1200u ),
         mAddedNewLoadRequests( false ),
+        mAddedNewLoadRequestsSinceWaitingForStreamingCompletion( false ),
         mEntriesToProcessPerIteration( 3u ),
         mMaxPreloadBytes( 256u * 1024u * 1024u ), //A value of 512MB begins to shake driver bugs.
         mTextureGpuManagerListener( &sDefaultTextureGpuManagerListener ),
@@ -848,6 +849,21 @@ namespace Ogre
         }
 
         savedTextures.insert( resourceName );
+    }
+    //-----------------------------------------------------------------------------------
+    bool TextureGpuManager::checkSupport( PixelFormatGpu format, uint32 textureFlags ) const
+    {
+        OGRE_ASSERT_LOW(
+            textureFlags != TextureFlags::NotTexture &&
+            "Invalid textureFlags combination. Asking to check if format is supported to do nothing" );
+
+        if( textureFlags & TextureFlags::AllowAutomipmaps )
+        {
+            if( !PixelFormatGpuUtils::supportsHwMipmaps( format ) )
+                return false;
+        }
+
+        return true;
     }
     //-----------------------------------------------------------------------------------
     TextureGpuManager::MetadataCacheEntry::MetadataCacheEntry() :
@@ -1628,6 +1644,7 @@ namespace Ogre
         }
 
         mAddedNewLoadRequests = true;
+        mAddedNewLoadRequestsSinceWaitingForStreamingCompletion = true;
         ThreadData &mainData = mThreadData[c_mainThread];
         mLoadRequestsMutex.lock();
             mainData.loadRequests.push_back( LoadRequest( name, archive, loadingListener, image,
@@ -1745,6 +1762,7 @@ namespace Ogre
         texture->_transitionTo( GpuResidency::Resident, texture->_getSysRamCopy( 0 ), false );
 
         mAddedNewLoadRequests = true;
+        mAddedNewLoadRequestsSinceWaitingForStreamingCompletion = true;
         ThreadData &mainData = mThreadData[c_mainThread];
         mLoadRequestsMutex.lock();
             mainData.loadRequests.push_back( LoadRequest( name, 0, 0, image, texture,
@@ -3237,6 +3255,7 @@ namespace Ogre
           dumpStats();
 #endif
         }
+        mAddedNewLoadRequestsSinceWaitingForStreamingCompletion = false;
     }
     //-----------------------------------------------------------------------------------
     void TextureGpuManager::_waitFor( TextureGpu *texture, bool metadataOnly )

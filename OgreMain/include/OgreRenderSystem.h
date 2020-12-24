@@ -35,6 +35,7 @@ THE SOFTWARE.
 #include "OgreCommon.h"
 
 #include "OgreRenderSystemCapabilities.h"
+#include "OgreResourceTransition.h"
 #include "OgreConfigOptionMap.h"
 #include "OgreGpuProgram.h"
 #include "OgrePlane.h"
@@ -81,6 +82,12 @@ namespace Ogre
         unsigned int        height;
         bool                useFullScreen;
         NameValuePairList   miscParams;
+    };
+
+    struct BoundUav
+    {
+        GpuTrackedResource *rttOrBuffer;
+        ResourceAccess::ResourceAccess boundAccess;
     };
 
     /// Render window creation parameters container.
@@ -690,8 +697,10 @@ namespace Ogre
         RenderSystemCapabilites::getNumTextureUnits)
         @param enabled Boolean to turn the unit on/off
         @param texPtr Pointer to the texture to use.
+        @param bDepthReadOnly
+            true if the texture is also attached as a depth buffer but is read only
         */
-        virtual void _setTexture( size_t unit, TextureGpu *texPtr ) = 0;
+        virtual void _setTexture( size_t unit, TextureGpu *texPtr, bool bDepthReadOnly ) = 0;
 
         /** Because Ogre doesn't (yet) have the notion of a 'device' or 'GL context',
             this function lets Ogre know which device should be used by providing
@@ -801,9 +810,14 @@ namespace Ogre
         */
         void queueBindUAVs( const DescriptorSetUav *descSetUav );
 
-        /// Forces to take effect all the queued UAV binding requests. @see _queueBindUAV.
-        /// You don't need to call this if you're going to set the render target next.
-        virtual void flushUAVs(void) = 0;
+        BoundUav getBoundUav( size_t slot ) const;
+
+        /// Call this function if you need to call texture->copyTo or create an AsyncTextureTicket
+        /// on a Texture which is currently in either ResourceLayout::CopySrc or CopyDst layout.
+        ///
+        /// For performance reasons though it is recommended that you wait until
+        /// CompositorManager::_update() is returns
+        void flushTextureCopyOperations( void );
 
         /**
         @param slotStart
@@ -821,9 +835,16 @@ namespace Ogre
         virtual void _setSamplersCS( uint32 slotStart, const DescriptorSetSampler *set ) = 0;
         virtual void _setUavCS( uint32 slotStart, const DescriptorSetUav *set ) = 0;
 
-        virtual void _resourceTransitionCreated( ResourceTransition *resTransition )    {}
-        virtual void _resourceTransitionDestroyed( ResourceTransition *resTransition )  {}
-        virtual void _executeResourceTransition( ResourceTransition *resTransition )    {}
+        /// Required when caller will soon start analyzing barriers (e.g. use BarrierSolver)
+        /// Ogre will flush any pending resource transitions.
+        ///
+        /// Otherwise BarrierSolver will see that a Resource is in a particular state or layout,
+        /// then when calling executeResourceTransition, the pending resource layout
+        /// will be flushed, and now the resource transition resolved by BarrierSolver
+        /// will have the wrong 'old' layout
+        virtual void flushPendingAutoResourceLayouts() {}
+
+        virtual void executeResourceTransition( const ResourceTransitionArray &rstCollection ) {}
 
         virtual void _hlmsPipelineStateObjectCreated( HlmsPso *newPso ) {}
         virtual void _hlmsPipelineStateObjectDestroyed( HlmsPso *pso ) {}
@@ -1249,9 +1270,12 @@ namespace Ogre
         Shared listener could be set even if no render system is selected yet.
         This listener will receive "RenderSystemChanged" event on each Root::setRenderSystem call.
         */
-        static void setSharedListener(Listener* listener);
-        /** Retrieve a pointer to the current shared render system listener. */
-        static Listener* getSharedListener(void);
+        static void addSharedListener(Listener* listener);
+        /** Remove shared listener to the custom events that this render system can raise.
+        */
+        static void removeSharedListener(Listener* listener);
+
+        static void fireSharedEvent(const String& name, const NameValuePairList* params = 0);
 
         /** Adds a listener to the custom events that this render system can raise.
         @remarks
@@ -1388,6 +1412,20 @@ namespace Ogre
 
         bool isReverseDepth(void) const                         { return mReverseDepth; }
 
+        /// +Y is downwards in NDC (Normalized Device Coordinates). Only Vulkan has this problem.
+        bool getInvertedClipSpaceY( void ) const { return mInvertedClipSpaceY; }
+
+        /** Returns true if 'a' and 'b' internally map to the same layout and should be
+            considered equivalent for a given texture
+        @param bIsDebugCheck
+            When true, we're calling this as a consistency check (e.g. asserts if
+            layouts changed externally outside the BarrierSolver).
+            Non-explicit APIs may return too many false negatives triggering the
+            assert, thus this flag prevents false crashes
+        */
+        virtual bool isSameLayout( ResourceLayout::Layout a, ResourceLayout::Layout b,
+                                   const TextureGpu *texture, bool bIsDebugCheck ) const;
+
         /// On D3D11 calls ClearState followed by Flush().
         /// On GL3+ it calls glFlush
         ///
@@ -1398,10 +1436,15 @@ namespace Ogre
         virtual void flushCommands(void) = 0;
 
         virtual const PixelFormatToShaderType* getPixelFormatToShaderType(void) const = 0;
+
+        BarrierSolver &getBarrierSolver( void ) { return mBarrierSolver; }
    
     protected:
 
         void destroyAllRenderPassDescriptors(void);
+
+        BarrierSolver mBarrierSolver;
+        ResourceTransitionArray mFinalResourceTransition;
 
         DepthBufferMap2 mDepthBufferPool2;
         DepthBufferRefMap mSharedDepthBufferRefs;
@@ -1476,7 +1519,7 @@ namespace Ogre
 
         typedef list<Listener*>::type ListenerList;
         ListenerList mEventListeners;
-        static Listener* msSharedEventListener;
+        static ListenerList msSharedEventListeners;
 
         typedef list<HardwareOcclusionQuery*>::type HardwareOcclusionQueryList;
         HardwareOcclusionQueryList mHwOcclusionQueries;
@@ -1512,6 +1555,7 @@ namespace Ogre
         Vector3 mTexProjRelativeOrigin;
 
         bool mReverseDepth;
+        bool mInvertedClipSpaceY;
 
     };
     /** @} */

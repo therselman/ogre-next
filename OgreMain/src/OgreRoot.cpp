@@ -134,9 +134,10 @@ namespace Ogre {
 #endif
 
     //-----------------------------------------------------------------------
-    Root::Root(const String& pluginFileName, const String& configFileName,
-        const String& logFileName)
-      : mQueuedEnd(false)
+    Root::Root( const String &pluginFileName, const String &configFileName, const String &logFileName,
+                const String &appName ) :
+        mAppName( appName )
+      , mQueuedEnd(false)
       , mLogManager(0)
       , mRenderSystemCapabilitiesManager(0)
       , mFrameStats(0)
@@ -693,8 +694,7 @@ namespace Ogre {
         // Tell scene managers
         SceneManagerEnumerator::getSingleton().setRenderSystem(system);
 
-        if(RenderSystem::Listener* ls = RenderSystem::getSharedListener())
-            ls->eventOccurred("RenderSystemChanged");
+        RenderSystem::fireSharedEvent("RenderSystemChanged");
     }
     //-----------------------------------------------------------------------
     void Root::addRenderSystem(RenderSystem *newRend)
@@ -1170,7 +1170,7 @@ namespace Ogre {
         // ensure shutdown before destroying resource manager.
         mResourceBackgroundQueue->shutdown();
         mWorkQueue->shutdown();
-        if( mActiveRenderer )
+        if( mActiveRenderer && mActiveRenderer->getTextureGpuManager() )
             mActiveRenderer->getTextureGpuManager()->shutdown();
 
 		OGRE_DELETE mCompositorManager2;

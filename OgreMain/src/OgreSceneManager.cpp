@@ -671,6 +671,11 @@ void SceneManager::destroySkeletonInstance( SkeletonInstance *skeletonInstance )
     mSkeletonAnimationManager.destroySkeletonInstance( skeletonInstance );
 }
 //-----------------------------------------------------------------------
+void SceneManager::_removeSkeletonDef( const SkeletonDef *skeletonDef )
+{
+    mSkeletonAnimationManager.removeSkeletonDef( skeletonDef );
+}
+//-----------------------------------------------------------------------
 void SceneManager::destroyAllBillboardSets(void)
 {
     destroyAllMovableObjectsByType(v1::BillboardSetFactory::FACTORY_TYPE_NAME);
@@ -1540,6 +1545,9 @@ void SceneManager::_releaseManualHardwareResources()
         for(MovableObjectVec::iterator i = coll->movableObjects.begin(), i_end = coll->movableObjects.end(); i != i_end; ++i)
             (*i)->_releaseManualHardwareResources();
     }
+
+    if(mForwardPlusSystem)
+        mForwardPlusSystem->_releaseManualHardwareResources();
 }
 //-----------------------------------------------------------------------
 void SceneManager::_restoreManualHardwareResources()
@@ -1554,6 +1562,7 @@ void SceneManager::_restoreManualHardwareResources()
         for(MovableObjectVec::iterator i = coll->movableObjects.begin(), i_end = coll->movableObjects.end(); i != i_end; ++i)
             (*i)->_restoreManualHardwareResources();
     }
+    mStaticEntitiesDirty = true; // mObjectData.mWorldAabb could be corrupted as part of reinitialization
 }
 //-----------------------------------------------------------------------
 void SceneManager::prepareWorldGeometry(const String& filename)

@@ -434,7 +434,7 @@ namespace Ogre {
         static inline float snorm16ToFloat( int16 v )
         {
             // -32768 & -32767 both map to -1 according to D3D10 rules.
-            return Ogre::max( v / 32767.0f, -1.0f );
+            return std::max( v / 32767.0f, -1.0f );
         }
 
         static inline int8 floatToSnorm8( float v )
@@ -453,7 +453,7 @@ namespace Ogre {
         static inline float snorm8ToFloat( int8 v )
         {
             // -128 & -127 both map to -1 according to D3D10 rules.
-            return Ogre::max( v / 127.0f, -1.0f );
+            return std::max( v / 127.0f, -1.0f );
         }
 
         static inline uint32 ctz32( uint32 value )
@@ -503,14 +503,8 @@ namespace Ogre {
                 _BitScanForward64( &trailingZero, value );
             #endif
             return trailingZero;
-        #elif OGRE_PLATFORM == OGRE_PLATFORM_WIN32 && OGRE_COMPILER == OGRE_COMPILER_GNUC
-            return __builtin_ctzll( value );
         #else
-            #ifdef __MINGW32__
-                return __builtin_ctzll( value );
-            #else
-                return __builtin_ctzl( value );
-            #endif
+            return static_cast<uint32>( __builtin_ctzll( value ) );
         #endif
         }
 
@@ -533,11 +527,7 @@ namespace Ogre {
             #endif
             return 63u - lastBitSet;
         #else
-            #ifdef __MINGW32__
-                return __builtin_clzll( value );
-            #else
-                return __builtin_clzl( value );
-            #endif
+            return static_cast<uint32>( __builtin_clzll( value ) );
         #endif
         }
     };

@@ -495,6 +495,7 @@ namespace Ogre
         uint32              mTryLockMutexFailureCount;
         uint32              mTryLockMutexFailureLimit;
         bool                mAddedNewLoadRequests;
+        bool                mAddedNewLoadRequestsSinceWaitingForStreamingCompletion;
         ThreadData          mThreadData[2];
         StreamingData       mStreamingData;
 
@@ -692,8 +693,14 @@ namespace Ogre
         */
         bool _update( bool syncWithWorkerThread );
 
-        /// Blocks main thread until are pending textures are fully loaded.
+        /// Blocks main thread until all pending textures are fully loaded.
         void waitForStreamingCompletion(void);
+
+        /// It is not enough to call waitForStreamingCompletion to render
+        /// single frame with all textures loaded, as new loading requests
+        /// could be added during frame rendering. In this case waiting 
+        /// and rendering could be repeated to avoid the problem.
+        bool hasNewLoadRequests() const { return mAddedNewLoadRequestsSinceWaitingForStreamingCompletion; }
 
         /// Do not use directly. See TextureGpu::waitForMetadata & TextureGpu::waitForDataReady
         void _waitFor( TextureGpu *texture, bool metadataOnly );
@@ -876,6 +883,25 @@ namespace Ogre
                           const String &folderPath, set<String>::type &savedTextures,
                           bool saveOitd, bool saveOriginal,
                           HlmsTextureExportListener *listener );
+
+        /** Checks if the given format with the texture flags combination is supported
+
+        @param format
+        @param textureFlags
+            See TextureFlags::TextureFlags
+            Supported flags are:
+                NotTexture
+                RenderToTexture
+                Uav
+                AllowAutomipmaps
+
+            When NotTexture is set, we don't check whether it's possible to sample from
+            this texture. Note that some buggy Android drivers may report that it's not
+            possible to sample from that texture when it actually is.
+        @return
+            True if supported. False otherwise
+        */
+        virtual bool checkSupport( PixelFormatGpu format, uint32 textureFlags ) const;
 
     protected:
         /// Returns false if the entry was not found in the cache
